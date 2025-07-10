@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Forecast Dashboard</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN for charting -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Custom styles for Inter font and general layout */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        .container {
+            max-width: 1200px; /* Increased max-width for more horizontal space */
+            width: 95%; /* Use a percentage width for responsiveness */
+        }
+        canvas {
+            background-color: #ffffff; /* White background for chart */
+            border-radius: 0.75rem; /* Rounded corners */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+            /* Increased height for better vertical visibility */
+            height: 600px; /* Fixed height for the canvas */
+            width: 100%; /* Ensure canvas takes full width of its parent */
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+    <div class="container mx-auto bg-white p-8 rounded-xl shadow-lg">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-4xl font-extrabold text-gray-800">Sales Forecast Dashboard</h1>
+            <div class="flex items-center space-x-4">
+                <p class="text-gray-700 text-lg">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span>!</p>
+                <a href="{{ url_for('logout') }}" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+                    Logout
+                </a>
+            </div>
+        </div>
+
+        {# Flash messages for user feedback #}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <ul class="mb-4">
+                {% for category, message in messages %}
+                    <li class="{% if category == 'error' %}bg-red-100 border border-red-400 text-red-700{% elif category == 'success' %}bg-green-100 border border-green-400 text-green-700{% else %}bg-blue-100 border border-blue-400 text-blue-700{% endif %} px-4 py-3 rounded relative mb-2">
+                        {{ message }}
+                    </li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+        {% endwith %}
+
+        <div class="flex flex-col md:flex-row gap-8">
+            <!-- Chart Container -->
+            <div class="w-full md:w-3/4 bg-white p-6 rounded-xl shadow-md flex items-center justify-center">
+                <canvas id="salesForecastChart"></canvas>
+            </div>
+
+            <!-- Information Panel -->
+            <div class="w-full md:w-1/4 bg-blue-50 p-6 rounded-xl shadow-md flex flex-col justify-between">
+                <div>
+                    <h2 class="text-2xl font-bold text-blue-800 mb-4">About This Forecast</h2>
+                    <p class="text-gray-700 mb-4">
+                        This dashboard displays historical sales data and a future forecast generated using a simple
+                        Linear Regression model. The model learns trends from past sales to predict future values.
+                    </p>
+                    <p class="text-gray-700 mb-4">
+                        The forecast period is for the next 30 days from the last available historical data point.
+                    </p>
+                    <div class="bg-blue-100 p-4 rounded-lg border border-blue-200">
+                        <p class="text-blue-700 font-semibold">Model Used:</p>
+                        <p class="text-blue-600">Linear Regression (Scikit-learn)</p>
+                    </div>
+                </div>
+                <div class="mt-6 text-center space-y-4">
+                    <button id="refreshButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+                        Refresh Forecast
+                    </button>
+                    <a href="{{ url_for('train_model_web') }}" class="w-full inline-block bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+                        Retrain Model (View Metrics)
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variable to hold the chart instance
+        let salesChartInstance = null;
+
+        // Function to fetch data and render the chart
+        async function fetchAndRenderChart() {
+            try {
+                // Fetch data from the Flask API endpoint
+                const response = await fetch('/forecast_api');
+                if (!response.ok) {
+                    // If response is not OK (e.g., 401 Unauthorized), redirect to login
+                    if (response.status === 401) {
+                        window.location.href = '/'; // Redirect to home (login) page
+                        return;
+                    }
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                // Check for errors returned from the API
+                if (data.error) {
+                    console.error('API Error:', data.error);
+                    const chartContainer = document.getElementById('salesForecastChart').parentNode;
+                    chartContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error: ${data.error}</p>`;
+                    return; // Stop execution if API returned an error
+                }
+
+                const historicalData = data.historical;
+                const forecastData = data.forecast;
+
+                if (!historicalData || historicalData.length === 0) {
+                    const chartContainer = document.getElementById('salesForecastChart').parentNode;
+                    chartContainer.innerHTML = '<p class="text-gray-600 text-center p-4">No historical sales data available to display or forecast. Please ensure data is loaded into the database and the model is trained.</p>';
+                    return;
+                }
+
+                // Prepare labels (dates) and datasets (sales values) for Chart.js
+                // Combine dates from both historical and forecast data for the x-axis
+                const allDates = historicalData.map(d => d.Date).concat(forecastData.map(d => d.Date));
+
+                // Create data arrays, padding with nulls where data is not present
+                const historicalSalesPoints = historicalData.map(d => d.Sales);
+                const forecastedSalesPoints = forecastData.map(d => d.Sales);
+
+                // Create datasets for Chart.js
+                const datasets = [
+                    {
+                        label: 'Historical Sales',
+                        data: historicalSalesPoints.concat(Array(forecastedSalesPoints.length).fill(null)),
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        tension: 0.1,
+                        fill: false,
+                        pointRadius: 3,
+                        pointBackgroundColor: 'rgb(75, 192, 192)'
+                    },
+                    {
+                        label: 'Forecasted Sales',
+                        data: Array(historicalSalesPoints.length).fill(null).concat(forecastedSalesPoints),
+                        borderColor: 'rgb(255, 99, 132)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        borderDash: [5, 5], // Dashed line for forecast
+                        tension: 0.1,
+                        fill: false,
+                        pointRadius: 3,
+                        pointBackgroundColor: 'rgb(255, 99, 132)'
+                    }
+                ];
+
+                // Get the canvas element
+                const ctx = document.getElementById('salesForecastChart').getContext('2d');
+
+                // Destroy existing chart instance if it exists to prevent duplicates
+                if (salesChartInstance) {
+                    salesChartInstance.destroy();
+                }
+
+                // Create the new chart
+                salesChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: allDates,
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false, // Allow canvas to resize freely
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Sales Forecast Over Time',
+                                font: {
+                                    size: 20
+                                }
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                            },
+                            legend: {
+                                display: true,
+                                position: 'top',
+                            }
+                        },
+                        scales: {
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Date'
+                                },
+                                type: 'category', // Treat labels as categories
+                                labels: allDates, // Explicitly set labels for category scale
+                                ticks: {
+                                    autoSkip: true, // Automatically skip labels to prevent overlap
+                                    maxTicksLimit: 30, // Increased max ticks to show more labels
+                                    minRotation: 45, // Ensure labels are rotated for readability
+                                    maxRotation: 90, // Allow more rotation if needed
+                                    padding: 10, // Add padding between labels and axis line
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Sales'
+                                },
+                                beginAtZero: false // Allow y-axis to start above zero if data dictates
+                            }
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error fetching or rendering chart:', error);
+                // Display a user-friendly message if there's an error
+                const chartContainer = document.getElementById('salesForecastChart').parentNode;
+                chartContainer.innerHTML = '<p class="text-red-600 text-center p-4">Failed to load forecast data. Please ensure the Python server is running, the model is trained, and data is in the database.</p>';
+            }
+        }
+
+        // Initial chart render when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchAndRenderChart();
+
+            // Add event listener for the refresh button
+            document.getElementById('refreshButton').addEventListener('click', fetchAndRenderChart);
+        });
+
+        // Handle window resize for responsiveness
+        window.addEventListener('resize', () => {
+            if (salesChartInstance) {
+                salesChartInstance.resize();
+            }
+        });
+
+    </script>
+</body>
+</html>

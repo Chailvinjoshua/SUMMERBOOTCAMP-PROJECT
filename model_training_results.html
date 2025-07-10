@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Training Results</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: 
+                linear-gradient(to bottom right, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.8)),
+                url('/static/images/5d.png'); /* update path if needed */
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-2xl text-center">
+        <h1 class="text-3xl font-extrabold text-gray-800 mb-6">Model Training Results</h1>
+
+        <p class="text-gray-700 mb-6">Hello, <span class="font-semibold text-blue-600">{{ username }}</span>!</p>
+
+        {% if success %}
+            <div class="bg-green-100 border border-green-400 text-green-700 px-6 py-4 rounded-lg mb-6">
+                <p class="text-xl font-bold mb-2">Training Successful!</p>
+                <p class="text-lg">The models have been retrained and the best one saved for forecasting.</p>
+                {% if best_model %}
+                    <p class="text-lg mt-2">Best Model for Forecasting: <span class="font-bold text-green-800">{{ best_model }}</span></p>
+                {% endif %}
+            </div>
+
+            <div class="mt-8">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Individual Model Performance:</h2>
+                <div class="space-y-4">
+                    {% for model_name, metrics in models.items() %}
+                        {% if model_name != 'best_model' %}
+                            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 text-left">
+                                <h3 class="text-xl font-semibold text-blue-700 mb-2">{{ model_name }}</h3>
+                                {% if metrics.error %}
+                                    <p class="text-red-600">Error: {{ metrics.error }}</p>
+                                {% else %}
+                                    <p class="text-lg">RMSE: <span class="font-semibold">{{ metrics.rmse }}</span></p>
+                                    <p class="text-lg">R² Score: <span class="font-semibold">{{ metrics.r2 }}</span></p>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        {% else %}
+            <div class="bg-red-100 border border-red-400 text-red-700 px-6 py-4 rounded-lg mb-6">
+                <p class="text-xl font-bold mb-2">Training Failed!</p>
+                <p class="text-lg">Error: {{ message }}</p>
+                <p class="mt-4 text-sm">Please check the server logs for more details or ensure you have enough data in the database.</p>
+            </div>
+        {% endif %}
+
+        <a href="{{ url_for('sales_forecast_dashboard') }}" class="inline-block mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+            Go to Forecast Dashboard
+        </a>
+    </div>
+</body>
+</html>
